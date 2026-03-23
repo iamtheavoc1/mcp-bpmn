@@ -257,30 +257,32 @@ async function computeLayout(process: BpmnProcess): Promise<ElkNode> {
       "elk.algorithm": "layered",
       // Left-to-right flow (standard BPMN direction)
       "elk.direction": "RIGHT",
-      // Spacing — generous enough to prevent edge-through-element crossings
-      // on complex processes with feedback loops and 3-way gateways
-      "elk.spacing.nodeNode": "35",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "60",
-      "elk.spacing.edgeNode": "25",
-      "elk.spacing.edgeEdge": "15",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "25",
-      "elk.layered.spacing.edgeEdgeBetweenLayers": "15",
-      // Crossing minimisation — LAYER_SWEEP is the strongest strategy
+      // Spacing — generous for clean reading and edge routing
+      "elk.spacing.nodeNode": "40",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "70",
+      "elk.spacing.edgeNode": "30",
+      "elk.spacing.edgeEdge": "20",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "30",
+      "elk.layered.spacing.edgeEdgeBetweenLayers": "20",
+      // Crossing minimisation
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
       "elk.layered.crossingMinimization.greedySwitch.type": "TWO_SIDED",
-      // Orthogonal edge routing (clean right-angle bends)
+      // Orthogonal edge routing
       "elk.layered.edgeRouting": "ORTHOGONAL",
-      // Brandes/Köpf with BALANCED alignment – symmetric parallel blocks
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
-      // Post-layout compaction for tightness without overlaps
+      // NETWORK_SIMPLEX keeps the longest/main path as straight as possible
+      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+      "elk.layered.nodePlacement.networkSimplex.nodeFlexibility.default":
+        "NODE_SIZE",
+      // Layering: longest path keeps the happy path horizontal
+      "elk.layered.layering.strategy": "LONGEST_PATH",
+      // Post-layout compaction
       "elk.layered.compaction.postCompaction.strategy": "EDGE_LENGTH",
       "elk.layered.compaction.connectedComponents": "true",
       // Feedback/backward edges get routed cleanly
       "elk.layered.feedbackEdges": "true",
-      // Padding inside the graph
+      // Padding
       "elk.padding": "[top=30,left=30,bottom=30,right=30]",
-      // Preserve model element order where possible
+      // Preserve model element order
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
     },
     children: nodes
@@ -520,8 +522,10 @@ async function fixOverlaps(
           "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
           "elk.layered.crossingMinimization.greedySwitch.type": "TWO_SIDED",
           "elk.layered.edgeRouting": "ORTHOGONAL",
-          "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-          "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
+          "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+          "elk.layered.nodePlacement.networkSimplex.nodeFlexibility.default":
+            "NODE_SIZE",
+          "elk.layered.layering.strategy": "LONGEST_PATH",
           "elk.layered.compaction.postCompaction.strategy": "EDGE_LENGTH",
           "elk.layered.compaction.connectedComponents": "true",
           "elk.layered.feedbackEdges": "true",
