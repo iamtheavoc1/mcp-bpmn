@@ -305,6 +305,255 @@ async function computeLayout(process: BpmnProcess): Promise<ElkNode> {
   return elk.layout(elkGraph);
 }
 
+// ─── Post-layout overlap detection & correction ─────────────────────
+
+interface Rect {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface Segment {
+  edgeId: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+const LABEL_PAD = 25; // extra padding below nodes for labels
+const OVERLAP_PAD = 10; // minimum gap between shapes
+
+/**
+ * Expand a rect to include estimated label space below.
+ */
+function withLabelPad(r: Rect): Rect {
+  return { ...r, h: r.h + LABEL_PAD };
+}
+
+/**
+ * Check if two rects overlap (with padding).
+ */
+function rectsOverlap(a: Rect, b: Rect, pad = OVERLAP_PAD): boolean {
+  return (
+    a.x - pad < b.x + b.w &&
+    a.x + a.w + pad > b.x &&
+    a.y - pad < b.y + b.h &&
+    a.y + a.h + pad > b.y
+  );
+}
+
+/**
+ * Check if an orthogonal edge segment passes through a rect.
+ */
+function segmentCrossesRect(seg: Segment, rect: Rect, pad = 5): boolean {
+  const r = {
+    x: rect.x - pad,
+    y: rect.y - pad,
+    w: rect.w + 2 * pad,
+    h: rect.h + 2 * pad,
+  };
+
+  // Vertical segment
+  if (Math.abs(seg.x1 - seg.x2) < 1) {
+    const x = seg.x1;
+    const yMin = Math.min(seg.y1, seg.y2);
+    const yMax = Math.max(seg.y1, seg.y2);
+    return x > r.x && x < r.x + r.w && yMax > r.y && yMin < r.y + r.h;
+  }
+
+  // Horizontal segment
+  if (Math.abs(seg.y1 - seg.y2) < 1) {
+    const y = seg.y1;
+    const xMin = Math.min(seg.x1, seg.x2);
+    const xMax = Math.max(seg.x1, seg.x2);
+    return y > r.y && y < r.y + r.h && xMax > r.x && xMin < r.x + r.w;
+  }
+
+  return false; // diagonal — shouldn't happen with orthogonal routing
+}
+
+/**
+ * Extract edge segments from ELK layout result.
+ */
+function extractEdgeSegments(
+  layoutResult: ElkNode
+): Segment[] {
+  const segments: Segment[] = [];
+  for (const edge of (layoutResult.edges || []) as ElkExtendedEdge[]) {
+    for (const section of edge.sections || []) {
+      const pts = [
+        section.startPoint,
+        ...(section.bendPoints || []),
+        section.endPoint,
+      ];
+      for (let i = 0; i < pts.length - 1; i++) {
+        segments.push({
+          edgeId: edge.id,
+          x1: pts[i].x,
+          y1: pts[i].y,
+          x2: pts[i + 1].x,
+          y2: pts[i + 1].y,
+        });
+      }
+    }
+  }
+  return segments;
+}
+
+/**
+ * Post-process ELK layout to fix overlaps.
+ *
+ * Strategy:
+ * 1. Detect shape-shape overlaps → nudge apart vertically
+ * 2. Detect edge-through-shape crossings → increase spacing and re-layout
+ *
+ * Returns the (possibly re-laid-out) result and a list of fixes applied.
+ */
+async function fixOverlaps(
+  process: BpmnProcess,
+  layoutResult: ElkNode,
+  maxRetries = 2
+): Promise<{ result: ElkNode; fixes: string[] }> {
+  const fixes: string[] = [];
+  let result = layoutResult;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const children = result.children || [];
+    const rects: Rect[] = children
+      .filter((c) => c.x != null && c.y != null)
+      .map((c) => ({
+        id: c.id,
+        x: c.x!,
+        y: c.y!,
+        w: c.width ?? 100,
+        h: c.height ?? 80,
+      }));
+
+    let hasOverlap = false;
+
+    // ── 1. Shape-shape overlap detection + vertical nudge ──
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = withLabelPad(rects[i]);
+        const b = withLabelPad(rects[j]);
+        if (rectsOverlap(a, b)) {
+          hasOverlap = true;
+          fixes.push(
+            `Shape overlap: '${a.id}' and '${b.id}' — nudged apart`
+          );
+
+          // Nudge the lower one down
+          const overlap =
+            Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+          const nudge = overlap + OVERLAP_PAD;
+          const lower = a.y < b.y ? j : i;
+          const child = children.find((c) => c.id === rects[lower].id);
+          if (child && child.y != null) {
+            child.y += nudge;
+            rects[lower].y += nudge;
+          }
+        }
+      }
+    }
+
+    // ── 2. Edge-through-shape crossing detection ──
+    const segments = extractEdgeSegments(result);
+    const edgesWithSrc = new Map<string, Set<string>>();
+    for (const edge of (result.edges || []) as ElkExtendedEdge[]) {
+      const srcTgt = new Set<string>();
+      for (const s of (edge as any).sources || []) srcTgt.add(s);
+      for (const t of (edge as any).targets || []) srcTgt.add(t);
+      edgesWithSrc.set(edge.id, srcTgt);
+    }
+
+    let crossingCount = 0;
+    for (const seg of segments) {
+      const connected = edgesWithSrc.get(seg.edgeId) || new Set();
+      for (const rect of rects) {
+        // Skip the edge's own source/target nodes
+        if (connected.has(rect.id)) continue;
+        if (segmentCrossesRect(seg, rect)) {
+          crossingCount++;
+          if (crossingCount <= 3) {
+            fixes.push(
+              `Edge '${seg.edgeId}' crosses through '${rect.id}'`
+            );
+          }
+        }
+      }
+    }
+
+    if (crossingCount > 0 && attempt < maxRetries - 1) {
+      fixes.push(
+        `${crossingCount} edge-shape crossing(s) detected — re-laying out with wider spacing`
+      );
+      // Re-layout with increased spacing
+      const elements = process.flowElements || [];
+      const nodes = elements.filter(
+        (e) => e.$type !== ELEMENT_TYPES.SEQUENCE_FLOW
+      );
+      const flows = elements.filter(
+        (e) => e.$type === ELEMENT_TYPES.SEQUENCE_FLOW
+      ) as SequenceFlow[];
+
+      const spacingIncrease = 20 * (attempt + 1);
+      const elkGraph: ElkNode = {
+        id: "root",
+        layoutOptions: {
+          "elk.algorithm": "layered",
+          "elk.direction": "RIGHT",
+          "elk.spacing.nodeNode": String(35 + spacingIncrease),
+          "elk.layered.spacing.nodeNodeBetweenLayers": String(
+            60 + spacingIncrease
+          ),
+          "elk.spacing.edgeNode": String(25 + spacingIncrease),
+          "elk.spacing.edgeEdge": String(15 + spacingIncrease / 2),
+          "elk.layered.spacing.edgeNodeBetweenLayers": String(
+            25 + spacingIncrease
+          ),
+          "elk.layered.spacing.edgeEdgeBetweenLayers": String(
+            15 + spacingIncrease / 2
+          ),
+          "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+          "elk.layered.crossingMinimization.greedySwitch.type": "TWO_SIDED",
+          "elk.layered.edgeRouting": "ORTHOGONAL",
+          "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+          "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
+          "elk.layered.compaction.postCompaction.strategy": "EDGE_LENGTH",
+          "elk.layered.compaction.connectedComponents": "true",
+          "elk.layered.feedbackEdges": "true",
+          "elk.padding": "[top=30,left=30,bottom=30,right=30]",
+          "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+        },
+        children: nodes
+          .filter((n) => n.id)
+          .map((n) => ({
+            id: n.id!,
+            width: getElementSize(n).width,
+            height: getElementSize(n).height,
+          })),
+        edges: flows
+          .filter((f) => f.id && f.sourceRef?.id && f.targetRef?.id)
+          .map((f) => ({
+            id: f.id!,
+            sources: [f.sourceRef!.id!],
+            targets: [f.targetRef!.id!],
+          })),
+      };
+
+      result = await elk.layout(elkGraph);
+      continue; // re-check after re-layout
+    }
+
+    if (!hasOverlap && crossingCount === 0) break;
+  }
+
+  return { result, fixes };
+}
+
 /**
  * Turn ELK layout results into BPMNDI elements on the definitions.
  */
@@ -551,15 +800,22 @@ export function registerFormatTool(server: McpServer) {
             changes.push(`Sorted elements in process '${process.id}'`);
           }
 
-          // 4. Auto-layout via ELK (accumulates diagrams)
+          // 4. Auto-layout via ELK + overlap correction (accumulates diagrams)
           if (doAutoLayout) {
-            const layoutResult = await computeLayout(process);
+            const rawLayout = await computeLayout(process);
+            const { result: layoutResult, fixes } = await fixOverlaps(
+              process,
+              rawLayout
+            );
             generateDiagram(definitions, process, layoutResult);
             const shapeCount = (layoutResult.children || []).length;
             const edgeCount = (layoutResult.edges || []).length;
             changes.push(
               `Generated diagram layout (ELK layered): ${shapeCount} shapes, ${edgeCount} edges`
             );
+            if (fixes.length > 0) {
+              changes.push(`Overlap corrections: ${fixes.join("; ")}`);
+            }
           }
         }
 
