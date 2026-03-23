@@ -110,6 +110,21 @@ export function registerCreateTool(server: McpServer) {
         const elementMap = new Map<string, any>();
         const flowElements: any[] = [];
 
+        // Pre-check for duplicate custom IDs
+        const allCustomIds = [
+          ...events.filter(e => e.id).map(e => e.id!),
+          ...tasks.filter(t => t.id).map(t => t.id!),
+          ...gateways.filter(g => g.id).map(g => g.id!),
+          ...flows.filter(f => f.id).map(f => f.id!),
+        ];
+        const dupes = allCustomIds.filter((id, i) => allCustomIds.indexOf(id) !== i);
+        if (dupes.length > 0) {
+          return {
+            content: [{ type: "text" as const, text: `Error: Duplicate element IDs: ${[...new Set(dupes)].join(", ")}` }],
+            isError: true,
+          };
+        }
+
         // Create events
         for (const evt of events) {
           const id = evt.id || generateId(evt.type);

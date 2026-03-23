@@ -275,6 +275,33 @@ export function registerValidateTool(server: McpServer) {
           allIssues.push(...validateProcess(process));
         }
 
+        // Cross-process: check for duplicate IDs across the entire Definitions scope
+        const globalIds = new Map<string, string>(); // id -> processId
+        for (const process of processes) {
+          if (process.id) {
+            if (globalIds.has(process.id)) {
+              allIssues.push({
+                severity: "error",
+                message: `Duplicate process ID: '${process.id}'`,
+              });
+            }
+            globalIds.set(process.id, process.id);
+          }
+          for (const el of process.flowElements || []) {
+            if (el.id) {
+              const existing = globalIds.get(el.id);
+              if (existing) {
+                allIssues.push({
+                  severity: "error",
+                  message: `Duplicate ID '${el.id}' found in process '${process.id}' (also in '${existing}')`,
+                  elementId: el.id,
+                });
+              }
+              globalIds.set(el.id, process.id || "unknown");
+            }
+          }
+        }
+
         const errors = allIssues.filter((i) => i.severity === "error");
         const warnings = allIssues.filter((i) => i.severity === "warning");
         const info = allIssues.filter((i) => i.severity === "info");

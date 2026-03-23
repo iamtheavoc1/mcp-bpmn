@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import ELKModule, { type ElkNode, type ElkExtendedEdge } from "elkjs";
-// elkjs default export is the module, constructor is on .default
+// elkjs ESM/CJS interop: constructor may be on .default or directly exported
 const ELK = (ELKModule as any).default || ELKModule;
+if (typeof ELK !== "function") {
+  throw new Error("Failed to import ELK constructor from elkjs — check package version");
+}
 import {
   parseBpmn,
   serializeBpmn,
@@ -31,11 +34,12 @@ interface IdMapping {
   newId: string;
 }
 
-function normalizeIds(process: BpmnProcess): IdMapping[] {
+function normalizeIds(
+  process: BpmnProcess,
+  counters: Record<string, number> = {}
+): IdMapping[] {
   const mappings: IdMapping[] = [];
   const elements = process.flowElements || [];
-
-  const counters: Record<string, number> = {};
 
   function nextId(prefix: string): string {
     counters[prefix] = (counters[prefix] || 0) + 1;
@@ -408,19 +412,21 @@ function generateDiagram(
     );
   }
 
-  // ── Assemble diagram ──
+  // ── Assemble diagram (accumulate — caller must clear definitions.diagrams beforehand) ──
+  const diagramIndex = (definitions.diagrams || []).length + 1;
   const plane = moddle.create("bpmndi:BPMNPlane", {
-    id: "BPMNPlane_1",
+    id: `BPMNPlane_${diagramIndex}`,
     bpmnElement: process,
     planeElement: planeElements,
   });
 
   const diagram = moddle.create("bpmndi:BPMNDiagram", {
-    id: "BPMNDiagram_1",
+    id: `BPMNDiagram_${diagramIndex}`,
     plane,
   });
 
-  definitions.diagrams = [diagram];
+  if (!definitions.diagrams) definitions.diagrams = [];
+  definitions.diagrams.push(diagram);
 }
 
 // ─── Tool Registration ──────────────────────────────────────────────
@@ -504,6 +510,13 @@ export function registerFormatTool(server: McpServer) {
         }
 
         const changes: string[] = [];
+        // Shared counters so IDs are unique across all processes
+        const idCounters: Record<string, number> = {};
+
+        // Clear existing diagrams before regenerating
+        if (doAutoLayout) {
+          definitions.diagrams = [];
+        }
 
         for (const process of processes) {
           // 1. Remove orphaned flows
@@ -516,16 +529,16 @@ export function registerFormatTool(server: McpServer) {
             }
           }
 
-          // 2. Normalize IDs
+          // 2. Normalize IDs (shared counters prevent duplicates across processes)
           if (doNormalize) {
-            const mappings = normalizeIds(process);
-            changes.push(
-              `Normalized ${mappings.length} element ID(s) in process '${process.id}'`
-            );
-            // Also normalize process ID
             const oldProcId = process.id;
-            process.id = `Process_0001`;
-            changes.push(`Process ID: '${oldProcId}' -> 'Process_0001'`);
+            const mappings = normalizeIds(process, idCounters);
+            // Normalize process ID using shared counter
+            idCounters["Process"] = (idCounters["Process"] || 0) + 1;
+            process.id = `Process_${String(idCounters["Process"]).padStart(4, "0")}`;
+            changes.push(
+              `Normalized ${mappings.length} element ID(s) in process '${oldProcId}' -> '${process.id}'`
+            );
           }
 
           // 3. Sort elements
@@ -534,7 +547,7 @@ export function registerFormatTool(server: McpServer) {
             changes.push(`Sorted elements in process '${process.id}'`);
           }
 
-          // 4. Auto-layout via ELK
+          // 4. Auto-layout via ELK (accumulates diagrams)
           if (doAutoLayout) {
             const layoutResult = await computeLayout(process);
             generateDiagram(definitions, process, layoutResult);

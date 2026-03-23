@@ -15,53 +15,73 @@ import {
 } from "../bpmn-utils.js";
 import * as fs from "fs/promises";
 
+/** Sanitize a string for use as a Mermaid node ID */
+function sanitizeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+/** Escape a string for use inside Mermaid double-quoted labels */
+function escapeLabel(text: string): string {
+  return text
+    .replace(/"/g, "#quot;")
+    .replace(/</g, "#lt;")
+    .replace(/>/g, "#gt;")
+    .replace(/\{/g, "#lbrace;")
+    .replace(/\}/g, "#rbrace;");
+}
+
 /**
  * Convert BPMN process to Mermaid flowchart syntax
  */
 function toMermaid(processes: BpmnProcess[]): string {
-  const lines: string[] = ["flowchart TD"];
+  const lines: string[] = ["flowchart LR"];
 
   for (const process of processes) {
     const { tasks, gateways, events, flows } = categorizeElements(process);
 
     if (processes.length > 1) {
-      lines.push(`  subgraph ${process.id}["${process.name || process.id}"]`);
+      const sid = sanitizeId(process.id || "process");
+      lines.push(`  subgraph ${sid}["${escapeLabel(process.name || process.id || "Process")}"]`);
     }
 
     const indent = processes.length > 1 ? "    " : "  ";
 
-    // Render events
+    // Render events (distinct shapes per type)
     for (const evt of events) {
-      const label = evt.name || evt.$type.replace("bpmn:", "");
+      const id = sanitizeId(evt.id || "event");
+      const label = escapeLabel(evt.name || evt.$type.replace("bpmn:", ""));
       if (evt.$type === ELEMENT_TYPES.START_EVENT) {
-        lines.push(`${indent}${evt.id}(("${label}"))`);
+        lines.push(`${indent}${id}(("${label}"))`);
       } else if (evt.$type === ELEMENT_TYPES.END_EVENT) {
-        lines.push(`${indent}${evt.id}(("${label}"))`);
+        lines.push(`${indent}${id}((("${label}")))`);
       } else {
-        lines.push(`${indent}${evt.id}(("${label}"))`);
+        // Intermediate events
+        lines.push(`${indent}${id}([["${label}"]])`);
       }
     }
 
     // Render tasks
     for (const task of tasks) {
-      const label = task.name || task.id || "Task";
-      lines.push(`${indent}${task.id}["${label}"]`);
+      const id = sanitizeId(task.id || "task");
+      const label = escapeLabel(task.name || task.id || "Task");
+      lines.push(`${indent}${id}["${label}"]`);
     }
 
     // Render gateways
     for (const gw of gateways) {
-      const label = gw.name || gw.$type.replace("bpmn:", "");
-      lines.push(`${indent}${gw.id}{"${label}"}`);
+      const id = sanitizeId(gw.id || "gw");
+      const label = escapeLabel(gw.name || gw.$type.replace("bpmn:", ""));
+      lines.push(`${indent}${id}{"${label}"}`);
     }
 
     // Render flows
     for (const flow of flows as SequenceFlow[]) {
-      const src = flow.sourceRef?.id;
-      const tgt = flow.targetRef?.id;
+      const src = flow.sourceRef?.id ? sanitizeId(flow.sourceRef.id) : null;
+      const tgt = flow.targetRef?.id ? sanitizeId(flow.targetRef.id) : null;
       if (src && tgt) {
         const label = flow.name || (flow.conditionExpression as any)?.body;
         if (label) {
-          lines.push(`${indent}${src} -->|"${label}"| ${tgt}`);
+          lines.push(`${indent}${src} -->|"${escapeLabel(label)}"| ${tgt}`);
         } else {
           lines.push(`${indent}${src} --> ${tgt}`);
         }
@@ -81,11 +101,12 @@ function toMermaid(processes: BpmnProcess[]): string {
  */
 function toSimplifiedJson(processes: BpmnProcess[]) {
   return processes.map((process) => {
-    const { tasks, gateways, events, flows } = categorizeElements(process);
+    const { tasks, gateways, events, flows, other } = categorizeElements(process);
 
     return {
       id: process.id,
       name: process.name,
+      isExecutable: (process as any).isExecutable,
       elements: [
         ...events.map((e) => ({
           id: e.id,
@@ -104,6 +125,12 @@ function toSimplifiedJson(processes: BpmnProcess[]) {
           type: g.$type.replace("bpmn:", ""),
           name: g.name,
           category: "gateway" as const,
+        })),
+        ...other.map((o) => ({
+          id: o.id,
+          type: o.$type.replace("bpmn:", ""),
+          name: o.name,
+          category: "other" as const,
         })),
       ],
       connections: (flows as SequenceFlow[]).map((f) => ({
@@ -202,6 +229,7 @@ function toTextDescription(processes: BpmnProcess[]): string {
  */
 async function fromSimplifiedJson(json: any): Promise<string> {
   const processesData = Array.isArray(json) ? json : [json];
+  const warnings: string[] = [];
 
   const rootElements: any[] = [];
 
@@ -209,48 +237,58 @@ async function fromSimplifiedJson(json: any): Promise<string> {
     const flowElements: any[] = [];
     const elementMap = new Map<string, any>();
 
-    // Create elements
+    // Create elements with type validation
     for (const elem of procData.elements || []) {
       const bpmnType = `bpmn:${elem.type}`;
-      const el = moddle.create(bpmnType, {
-        id: elem.id || generateId(elem.type),
-        name: elem.name,
-      });
-      elementMap.set(el.id!, el);
-      flowElements.push(el);
+      try {
+        const el = moddle.create(bpmnType, {
+          id: elem.id || generateId(elem.type),
+          name: elem.name,
+        });
+        elementMap.set(el.id!, el);
+        flowElements.push(el);
+      } catch (e: any) {
+        warnings.push(`Skipped element '${elem.id || elem.name || "?"}': invalid type '${elem.type}' (${e.message})`);
+      }
     }
 
-    // Create connections
+    // Create connections with validation
     for (const conn of procData.connections || []) {
       const sourceRef = elementMap.get(conn.from);
       const targetRef = elementMap.get(conn.to);
-      if (sourceRef && targetRef) {
-        const flowProps: any = {
-          id: conn.id || generateId("Flow"),
-          name: conn.label,
-          sourceRef,
-          targetRef,
-        };
-        if (conn.condition) {
-          flowProps.conditionExpression = moddle.create(
-            "bpmn:FormalExpression",
-            { body: conn.condition }
-          );
-        }
-        const seqFlow = moddle.create("bpmn:SequenceFlow", flowProps);
-        flowElements.push(seqFlow);
-
-        if (!sourceRef.outgoing) sourceRef.outgoing = [];
-        sourceRef.outgoing.push(seqFlow);
-        if (!targetRef.incoming) targetRef.incoming = [];
-        targetRef.incoming.push(seqFlow);
+      if (!sourceRef) {
+        warnings.push(`Connection '${conn.id || "?"}': source '${conn.from}' not found — skipped`);
+        continue;
       }
+      if (!targetRef) {
+        warnings.push(`Connection '${conn.id || "?"}': target '${conn.to}' not found — skipped`);
+        continue;
+      }
+      const flowProps: any = {
+        id: conn.id || generateId("Flow"),
+        name: conn.label,
+        sourceRef,
+        targetRef,
+      };
+      if (conn.condition) {
+        flowProps.conditionExpression = moddle.create(
+          "bpmn:FormalExpression",
+          { body: conn.condition }
+        );
+      }
+      const seqFlow = moddle.create("bpmn:SequenceFlow", flowProps);
+      flowElements.push(seqFlow);
+
+      if (!sourceRef.outgoing) sourceRef.outgoing = [];
+      sourceRef.outgoing.push(seqFlow);
+      if (!targetRef.incoming) targetRef.incoming = [];
+      targetRef.incoming.push(seqFlow);
     }
 
     const process = moddle.create("bpmn:Process", {
       id: procData.id || generateId("Process"),
       name: procData.name,
-      isExecutable: true,
+      isExecutable: procData.isExecutable ?? true,
       flowElements,
     });
 
@@ -263,7 +301,7 @@ async function fromSimplifiedJson(json: any): Promise<string> {
     rootElements,
   });
 
-  return (await serializeBpmn(definitions))!;
+  return await serializeBpmn(definitions);
 }
 
 export function registerConvertTool(server: McpServer) {

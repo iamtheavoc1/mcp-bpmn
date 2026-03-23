@@ -224,6 +224,13 @@ export function registerModifyTool(server: McpServer) {
                 continue;
               }
 
+              if (sourceResult.process !== targetResult.process) {
+                results.push(
+                  `Error: Cannot create sequence flow across processes ('${op.from}' is in '${sourceResult.process.id}', '${op.to}' is in '${targetResult.process.id}'). Use message flows for cross-process communication.`
+                );
+                continue;
+              }
+
               const flowId = op.id || generateId("Flow");
               const flowProps: any = {
                 id: flowId,
@@ -291,6 +298,18 @@ export function registerModifyTool(server: McpServer) {
                 const rmIdx = found.process.flowElements!.indexOf(el);
                 if (rmIdx !== -1) {
                   found.process.flowElements!.splice(rmIdx, 1);
+                }
+              }
+
+              // Clean up stale incoming/outgoing refs on remaining elements
+              const removedIds = new Set([op.id, ...toRemove.map(f => f.id)]);
+              for (const el of found.process.flowElements || []) {
+                const any = el as any;
+                if (any.incoming) {
+                  any.incoming = any.incoming.filter((f: any) => !removedIds.has(f.id));
+                }
+                if (any.outgoing) {
+                  any.outgoing = any.outgoing.filter((f: any) => !removedIds.has(f.id));
                 }
               }
 

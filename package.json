@@ -1,22 +1,33 @@
 {
   "name": "mcp-bpmn",
-  "version": "1.0.0",
-  "description": "MCP server for BPMN diagram creation, parsing, validation, analysis and conversion",
+  "version": "1.1.0",
+  "description": "MCP server for BPMN 2.0 diagram creation, parsing, validation, analysis, conversion, and auto-layout",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "mcp-bpmn": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "start": "node dist/index.js",
     "dev": "tsc --watch"
+  },
+  "engines": {
+    "node": ">=20.12"
   },
   "keywords": [
     "mcp",
     "bpmn",
-    "model-context-protocol"
+    "bpmn2",
+    "model-context-protocol",
+    "auto-layout",
+    "elk"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iamtheavoc1/mcp-bpmn.git"
+  },
+  "author": "iamtheavoc1",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
