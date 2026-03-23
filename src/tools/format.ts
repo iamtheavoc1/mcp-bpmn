@@ -257,25 +257,29 @@ async function computeLayout(process: BpmnProcess): Promise<ElkNode> {
       "elk.algorithm": "layered",
       // Left-to-right flow (standard BPMN direction)
       "elk.direction": "RIGHT",
-      // Tight but readable spacing
-      "elk.spacing.nodeNode": "30",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "50",
-      "elk.spacing.edgeNode": "20",
-      "elk.spacing.edgeEdge": "10",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "15",
-      "elk.layered.spacing.edgeEdgeBetweenLayers": "10",
-      // Crossing minimisation
+      // Spacing — generous enough to prevent edge-through-element crossings
+      // on complex processes with feedback loops and 3-way gateways
+      "elk.spacing.nodeNode": "35",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "60",
+      "elk.spacing.edgeNode": "25",
+      "elk.spacing.edgeEdge": "15",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "25",
+      "elk.layered.spacing.edgeEdgeBetweenLayers": "15",
+      // Crossing minimisation — LAYER_SWEEP is the strongest strategy
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+      "elk.layered.crossingMinimization.greedySwitch.type": "TWO_SIDED",
       // Orthogonal edge routing (clean right-angle bends)
       "elk.layered.edgeRouting": "ORTHOGONAL",
       // Brandes/Köpf with BALANCED alignment – symmetric parallel blocks
       "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
       "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
-      // Post-layout compaction
+      // Post-layout compaction for tightness without overlaps
       "elk.layered.compaction.postCompaction.strategy": "EDGE_LENGTH",
       "elk.layered.compaction.connectedComponents": "true",
+      // Feedback/backward edges get routed cleanly
+      "elk.layered.feedbackEdges": "true",
       // Padding inside the graph
-      "elk.padding": "[top=25,left=25,bottom=25,right=25]",
+      "elk.padding": "[top=30,left=30,bottom=30,right=30]",
       // Preserve model element order where possible
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
     },
