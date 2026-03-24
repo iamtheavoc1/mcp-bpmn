@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { layoutProcess } from "bpmn-auto-layout";
 import {
   parseBpmn,
   serializeBpmn,
   getAllProcesses,
+  applyAutoLayout,
   BpmnDefinitions,
   BpmnProcess,
   BpmnElement,
@@ -306,17 +306,17 @@ export function registerFormatTool(server: McpServer) {
             format: true,
           });
 
-          // Run bpmn-auto-layout — it takes XML in, returns XML with BPMNDI out
+          // Run auto-layout (handles both single-process and multi-pool collaborations)
           try {
-            outputXml = await layoutProcess(intermediateXml);
+            outputXml = await applyAutoLayout(intermediateXml);
             changes.push(
-              `Generated diagram layout (bpmn-auto-layout grid-based): horizontal happy path, Manhattan edge routing`
+              `Generated diagram layout: horizontal happy path, Manhattan edge routing`
             );
           } catch {
-            // bpmn-auto-layout can fail on complex topologies (back-edges, cycles)
+            // Layout can fail on complex topologies (back-edges, cycles)
             outputXml = intermediateXml;
             changes.push(
-              `Auto-layout skipped: the diagram topology (e.g. cycles or back-edges) is not supported by the layout engine. The XML is valid but has no visual positioning — open it in a BPMN editor to arrange elements manually.`
+              `Auto-layout skipped: the diagram topology is not supported by the layout engine. The XML is valid but has no visual positioning — open it in a BPMN editor to arrange elements manually.`
             );
           }
         } else {
