@@ -9,6 +9,7 @@ import { registerModifyTool } from "./tools/modify.js";
 import { registerAnalyzeTool } from "./tools/analyze.js";
 import { registerConvertTool } from "./tools/convert.js";
 import { registerFormatTool } from "./tools/format.js";
+import { registerBenchmarkTool } from "./tools/benchmark.js";
 
 const server = new McpServer(
   {
@@ -30,6 +31,7 @@ registerModifyTool(server);
 registerAnalyzeTool(server);
 registerConvertTool(server);
 registerFormatTool(server);
+registerBenchmarkTool(server);
 
 // Start the server with stdio transport
 async function main() {
