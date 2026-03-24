@@ -11,7 +11,7 @@ import { exec } from "child_process";
 // ─── Constants ──────────────────────────────────────────────────────
 const POOL_LABEL_W = 30;
 const POOL_PAD = 40;
-const POOL_GAP = 30;
+const POOL_GAP = 50; // wider gap between pools for message flow labels
 const SP = 150;          // column spacing
 const TASK_W = 100;
 const TASK_H = 80;
@@ -38,8 +38,12 @@ const C = []; // C[0] through C[8]
 for (let i = 0; i < 9; i++) C[i] = X0 + i * SP;
 
 // Right margin for message flow routing (outside all elements)
-const RIGHT_MARGIN = C[8] + TASK_W + 120;
-const POOL_W = RIGHT_MARGIN + 200 - 50; // pool width — enough for labels on right margin
+// Right margin lanes — 3 separate vertical corridors, 120px apart, for message flows
+const LANE_1 = C[8] + TASK_W + 120;  // Tracking Info
+const LANE_2 = LANE_1 + 120;          // Payment
+const LANE_3 = LANE_2 + 120;          // Invoice
+const RIGHT_MARGIN = LANE_1; // alias
+const POOL_W = LANE_3 + 100 - 50;     // pool width — enough for all 3 lanes + labels
 
 // Element position factory
 const mk = (col, row, type = "task") => {
@@ -120,19 +124,19 @@ const fin = {
 // Adjacent pools: straight down/up between the two
 // Non-adjacent: route along the RIGHT MARGIN (outside all elements)
 
-// Order Details: c_order(col2) → s_start(col0) — adjacent, route through gap
+// Order Details: c_order(col2) → s_start(col0) — adjacent, route through upper gap
 const mf_order = [
   [mid(cust.order).cx, mid(cust.order).b],
-  [mid(cust.order).cx, P1 + P1H + 5],
-  [mid(sales.start).cx, P1 + P1H + 5],
+  [mid(cust.order).cx, P1 + P1H + 8],
+  [mid(sales.start).cx, P1 + P1H + 8],
   [mid(sales.start).cx, sales.start.y],
 ];
 
-// Availability: s_validate(col1) → c_gwAvail(col3) — adjacent, route through gap
+// Availability: s_validate(col1) → c_gwAvail(col3) — adjacent, route through lower gap
 const mf_avail = [
   [mid(sales.validate).cx, sales.validate.y],
-  [mid(sales.validate).cx, P2 - 5],
-  [mid(cust.gwAvail).cx,   P2 - 5],
+  [mid(sales.validate).cx, P2 - 8],
+  [mid(cust.gwAvail).cx,   P2 - 8],
   [mid(cust.gwAvail).cx,   mid(cust.gwAvail).b],
 ];
 
@@ -144,41 +148,38 @@ const mf_fulfill = [
   [mid(ful.start).cx,     ful.start.y],
 ];
 
-// Payment: c_pay(col4) → fi_start(col3) — SKIPS 2 pools!
-// Route: down from c_pay → right to RIGHT_MARGIN → straight down past Sales+Fulfillment → left to fi_start
+// Payment: c_pay(col4) → fi_start(col3) — SKIPS 2 pools, uses LANE_2
 const mf_payment = [
   [mid(cust.pay).cx,   mid(cust.pay).b],
   [mid(cust.pay).cx,   P1 + P1H + POOL_GAP/2],
-  [RIGHT_MARGIN + 30,  P1 + P1H + POOL_GAP/2],
-  [RIGHT_MARGIN + 30,  P4 - POOL_GAP/2],
+  [LANE_2,             P1 + P1H + POOL_GAP/2],
+  [LANE_2,             P4 - POOL_GAP/2],
   [mid(fin.start).cx,  P4 - POOL_GAP/2],
   [mid(fin.start).cx,  fin.start.y],
 ];
 
-// Tracking Info: f_notify(col6) → c_receive(col6) — SKIPS Sales pool
-// Route: up from f_notify → right to RIGHT_MARGIN → straight up past Sales → left to c_receive
+// Tracking Info: f_notify(col6) → c_receive(col6) — SKIPS Sales, uses LANE_1
 const mf_tracking = [
   [mid(ful.notify).cx,   ful.notify.y],
   [mid(ful.notify).cx,   P3 - POOL_GAP/2],
-  [RIGHT_MARGIN,         P3 - POOL_GAP/2],
-  [RIGHT_MARGIN,         P1 + P1H + 5],
+  [LANE_1,               P3 - POOL_GAP/2],
+  [LANE_1,               P1 + P1H + 5],
   [mid(cust.receive).cx, P1 + P1H + 5],
   [mid(cust.receive).cx, mid(cust.receive).b],
 ];
 
-// Invoice: fi_send(col6) → c_confirm(col7) — SKIPS 2 pools!
-// Route: up from fi_send → right to RIGHT_MARGIN+60 → straight up past everything → left to c_confirm
+// Invoice: fi_send(col6) → c_confirm(col7) — SKIPS 2 pools, uses LANE_3
 const mf_invoice = [
   [mid(fin.send).cx,     fin.send.y],
   [mid(fin.send).cx,     P4 - POOL_GAP/2 + 10],
-  [RIGHT_MARGIN + 60,    P4 - POOL_GAP/2 + 10],
-  [RIGHT_MARGIN + 60,    P2 - 5],
+  [LANE_3,               P4 - POOL_GAP/2 + 10],
+  [LANE_3,               P2 - 5],
   [mid(cust.confirm).cx, P2 - 5],
   [mid(cust.confirm).cx, mid(cust.confirm).b],
 ];
 
 // ─── Build XML ──────────────────────────────────────────────────────
-const FULL_W = RIGHT_MARGIN + 100;
+const FULL_W = LANE_3 + 100;
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
