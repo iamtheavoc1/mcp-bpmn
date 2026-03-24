@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { moddle, generateId, serializeBpmn } from "../bpmn-utils.js";
+import {
+  moddle,
+  generateId,
+  serializeBpmn,
+  applyAutoLayout,
+  TASK_TYPE_MAP,
+  GATEWAY_TYPE_MAP,
+  EVENT_TYPE_MAP,
+} from "../bpmn-utils.js";
 
 const TaskSchema = z.object({
   id: z.string().optional().describe("Optional custom ID for the task"),
@@ -53,32 +61,6 @@ const FlowSchema = z.object({
     .optional()
     .describe("Optional condition expression for the flow"),
 });
-
-const TASK_TYPE_MAP: Record<string, string> = {
-  task: "bpmn:Task",
-  userTask: "bpmn:UserTask",
-  serviceTask: "bpmn:ServiceTask",
-  scriptTask: "bpmn:ScriptTask",
-  sendTask: "bpmn:SendTask",
-  receiveTask: "bpmn:ReceiveTask",
-  manualTask: "bpmn:ManualTask",
-  businessRuleTask: "bpmn:BusinessRuleTask",
-};
-
-const GATEWAY_TYPE_MAP: Record<string, string> = {
-  exclusive: "bpmn:ExclusiveGateway",
-  parallel: "bpmn:ParallelGateway",
-  inclusive: "bpmn:InclusiveGateway",
-  eventBased: "bpmn:EventBasedGateway",
-  complex: "bpmn:ComplexGateway",
-};
-
-const EVENT_TYPE_MAP: Record<string, string> = {
-  startEvent: "bpmn:StartEvent",
-  endEvent: "bpmn:EndEvent",
-  intermediateCatchEvent: "bpmn:IntermediateCatchEvent",
-  intermediateThrowEvent: "bpmn:IntermediateThrowEvent",
-};
 
 export function registerCreateTool(server: McpServer) {
   server.tool(
@@ -232,7 +214,8 @@ export function registerCreateTool(server: McpServer) {
           rootElements: [process],
         });
 
-        const xml = await serializeBpmn(definitions);
+        const rawXml = await serializeBpmn(definitions);
+        const xml = await applyAutoLayout(rawXml);
 
         return {
           content: [

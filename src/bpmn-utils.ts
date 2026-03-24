@@ -1,4 +1,5 @@
 import { BpmnModdle } from "bpmn-moddle";
+import { layoutProcess } from "bpmn-auto-layout";
 
 // Re-export a singleton instance
 export const moddle = new BpmnModdle();
@@ -176,4 +177,52 @@ export function summarizeElement(el: BpmnElement): Record<string, unknown> {
     type: el.$type.replace("bpmn:", ""),
     name: el.name || undefined,
   };
+}
+
+// ─── Shared type maps ────────────────────────────────────────────────
+
+export const TASK_TYPE_MAP: Record<string, string> = {
+  task: "bpmn:Task",
+  userTask: "bpmn:UserTask",
+  serviceTask: "bpmn:ServiceTask",
+  scriptTask: "bpmn:ScriptTask",
+  sendTask: "bpmn:SendTask",
+  receiveTask: "bpmn:ReceiveTask",
+  manualTask: "bpmn:ManualTask",
+  businessRuleTask: "bpmn:BusinessRuleTask",
+};
+
+export const GATEWAY_TYPE_MAP: Record<string, string> = {
+  exclusive: "bpmn:ExclusiveGateway",
+  parallel: "bpmn:ParallelGateway",
+  inclusive: "bpmn:InclusiveGateway",
+  eventBased: "bpmn:EventBasedGateway",
+  complex: "bpmn:ComplexGateway",
+};
+
+export const EVENT_TYPE_MAP: Record<string, string> = {
+  startEvent: "bpmn:StartEvent",
+  endEvent: "bpmn:EndEvent",
+  intermediateCatchEvent: "bpmn:IntermediateCatchEvent",
+  intermediateThrowEvent: "bpmn:IntermediateThrowEvent",
+};
+
+/**
+ * Apply auto-layout to BPMN XML so diagrams render properly in viewers.
+ * Takes raw BPMN XML (with or without BPMNDI) and returns XML with
+ * a full diagram layout: horizontal happy path, grid-based positioning,
+ * and Manhattan edge routing.
+ *
+ * Falls back to raw XML if the layout engine fails (e.g. complex cycles
+ * that bpmn-auto-layout cannot handle).
+ */
+export async function applyAutoLayout(xml: string): Promise<string> {
+  try {
+    return await layoutProcess(xml);
+  } catch {
+    // bpmn-auto-layout can fail on complex topologies (back-edges, cycles).
+    // Return the raw XML so the caller still gets valid BPMN — it just
+    // won't have BPMNDI positioning until the user runs bpmn_format.
+    return xml;
+  }
 }

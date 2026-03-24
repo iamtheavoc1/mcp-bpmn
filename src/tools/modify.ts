@@ -6,37 +6,15 @@ import {
   moddle,
   generateId,
   getAllProcesses,
+  applyAutoLayout,
   BpmnDefinitions,
   BpmnProcess,
   BpmnElement,
+  TASK_TYPE_MAP,
+  GATEWAY_TYPE_MAP,
+  EVENT_TYPE_MAP,
 } from "../bpmn-utils.js";
 import * as fs from "fs/promises";
-
-const TASK_TYPE_MAP: Record<string, string> = {
-  task: "bpmn:Task",
-  userTask: "bpmn:UserTask",
-  serviceTask: "bpmn:ServiceTask",
-  scriptTask: "bpmn:ScriptTask",
-  sendTask: "bpmn:SendTask",
-  receiveTask: "bpmn:ReceiveTask",
-  manualTask: "bpmn:ManualTask",
-  businessRuleTask: "bpmn:BusinessRuleTask",
-};
-
-const GATEWAY_TYPE_MAP: Record<string, string> = {
-  exclusive: "bpmn:ExclusiveGateway",
-  parallel: "bpmn:ParallelGateway",
-  inclusive: "bpmn:InclusiveGateway",
-  eventBased: "bpmn:EventBasedGateway",
-  complex: "bpmn:ComplexGateway",
-};
-
-const EVENT_TYPE_MAP: Record<string, string> = {
-  startEvent: "bpmn:StartEvent",
-  endEvent: "bpmn:EndEvent",
-  intermediateCatchEvent: "bpmn:IntermediateCatchEvent",
-  intermediateThrowEvent: "bpmn:IntermediateThrowEvent",
-};
 
 function findElementById(
   processes: BpmnProcess[],
@@ -304,12 +282,12 @@ export function registerModifyTool(server: McpServer) {
               // Clean up stale incoming/outgoing refs on remaining elements
               const removedIds = new Set([op.id, ...toRemove.map(f => f.id)]);
               for (const el of found.process.flowElements || []) {
-                const any = el as any;
-                if (any.incoming) {
-                  any.incoming = any.incoming.filter((f: any) => !removedIds.has(f.id));
+                const node = el as any;
+                if (node.incoming) {
+                  node.incoming = node.incoming.filter((f: any) => !removedIds.has(f.id));
                 }
-                if (any.outgoing) {
-                  any.outgoing = any.outgoing.filter((f: any) => !removedIds.has(f.id));
+                if (node.outgoing) {
+                  node.outgoing = node.outgoing.filter((f: any) => !removedIds.has(f.id));
                 }
               }
 
@@ -341,7 +319,8 @@ export function registerModifyTool(server: McpServer) {
           }
         }
 
-        const outputXml = await serializeBpmn(definitions);
+        const rawXml = await serializeBpmn(definitions);
+        const outputXml = await applyAutoLayout(rawXml);
 
         if (outputPath) {
           await fs.writeFile(outputPath, outputXml, "utf-8");

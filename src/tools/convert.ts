@@ -7,6 +7,7 @@ import {
   getAllProcesses,
   categorizeElements,
   generateId,
+  applyAutoLayout,
   BpmnDefinitions,
   BpmnProcess,
   BpmnElement,
@@ -301,7 +302,8 @@ async function fromSimplifiedJson(json: any): Promise<string> {
     rootElements,
   });
 
-  return await serializeBpmn(definitions);
+  const rawXml = await serializeBpmn(definitions);
+  return applyAutoLayout(rawXml);
 }
 
 export function registerConvertTool(server: McpServer) {

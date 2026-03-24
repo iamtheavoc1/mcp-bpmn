@@ -13,7 +13,7 @@ import { registerFormatTool } from "./tools/format.js";
 const server = new McpServer(
   {
     name: "mcp-bpmn",
-    version: "1.0.0",
+    version: "1.1.0",
   },
   {
     capabilities: {

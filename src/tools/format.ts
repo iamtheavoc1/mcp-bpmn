@@ -307,10 +307,18 @@ export function registerFormatTool(server: McpServer) {
           });
 
           // Run bpmn-auto-layout — it takes XML in, returns XML with BPMNDI out
-          outputXml = await layoutProcess(intermediateXml);
-          changes.push(
-            `Generated diagram layout (bpmn-auto-layout grid-based): horizontal happy path, Manhattan edge routing`
-          );
+          try {
+            outputXml = await layoutProcess(intermediateXml);
+            changes.push(
+              `Generated diagram layout (bpmn-auto-layout grid-based): horizontal happy path, Manhattan edge routing`
+            );
+          } catch {
+            // bpmn-auto-layout can fail on complex topologies (back-edges, cycles)
+            outputXml = intermediateXml;
+            changes.push(
+              `Auto-layout skipped: the diagram topology (e.g. cycles or back-edges) is not supported by the layout engine. The XML is valid but has no visual positioning — open it in a BPMN editor to arrange elements manually.`
+            );
+          }
         } else {
           outputXml = await serializeBpmn(definitions, { format: true });
         }
